@@ -3,7 +3,7 @@ import json
 correct, total = 0, 0
 write_file = open("llm_training_data.jsonl", "w")
 
-for line in open("llama3_output_with_score.txt"):
+for line in open("../llama3_output_with_score.txt"):
     if not line.startswith("-----"):
         total += 1
         d = json.loads(line.strip())
@@ -34,11 +34,15 @@ for line in open("llama3_output_with_score.txt"):
                     preceeding += splits[i-1]
                 # get the rationale
                 rationale = splits[i].split("<EOT>")[0]
-                following = splits[i].split("<EOT>")[1]
-                print("proceeding: " + preceeding)
-                print("rationale: " + rationale)
-                print("following: " + following)
-                print("----------------------------------------\n")
+                # sometimes we can't find end of thought tokens
+                try:
+                    following = splits[i].split("<EOT>")[1]
+                except:
+                    continue
+                # print("proceeding: " + preceeding)
+                # print("rationale: " + rationale)
+                # print("following: " + following)
+                # print("----------------------------------------\n")
                 write_file.write(json.dumps({"preceeding": preceeding, "rationale": rationale, "following": following}) + "\n")
         
 print(correct, total, correct / total)
