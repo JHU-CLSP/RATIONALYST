@@ -1,2 +1,4 @@
 *wandb/*
 *.vscode/*
+*output/*
+*output_old/*
