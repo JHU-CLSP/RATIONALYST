@@ -8,3 +8,8 @@
 
 ## Step 3: LLAMA3 model training
 `sbatch sbatch_llama_finetune.sh`
+
+
+## Step 4: Model inference
+With world model: `sbatch sbatch_llama_inference_world_model_single.sh`
+Without world model: `sbatch_llama_inference_single.sh`
