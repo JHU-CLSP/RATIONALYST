@@ -33,10 +33,8 @@ torchrun --nproc_per_node=2 --master_port=1234 llama3_finetune_alpaca.py \
     --per_device_train_batch_size 2 \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 8 \
-    --evaluation_strategy "no" \
-    --save_strategy "steps" \
-    --save_steps 1000 \
-    --eval_steps 1000 \
+    --evaluation_strategy "epoch" \
+    --save_strategy "epoch" \
     --save_total_limit 3 \
     --learning_rate 2e-5 \
     --weight_decay 0. \
