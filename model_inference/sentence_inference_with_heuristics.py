@@ -18,6 +18,7 @@ import aiohttp
 import sys
 from openai import AsyncOpenAI
 import httpx
+from argparse import ArgumentParser
 
 client = AsyncOpenAI(
     http_client=httpx.AsyncClient(
@@ -88,7 +89,7 @@ for data in rand_list_from_train:
     messages_gsm8k.extend(l)
 
 
-async def get_heuristic(heuristic, previous_list):
+async def get_heuristic(heuristic, previous_list, world_model):
     if heuristic == "gpt4_world":
         probs_list = []
         for temp_previous in previous_list:
@@ -125,7 +126,7 @@ async def get_heuristic(heuristic, previous_list):
         argmax_prob = np.argmax(probs_list)
         return argmax_prob
     elif heuristic == "random":
-        return random.randint(0, len(previous_list) - 1)
+        return int(random.randint(0, len(previous_list) - 1))
     elif heuristic == "llama3_world":
         probs_list = []
         for temp_previous in previous_list:
@@ -169,8 +170,52 @@ async def get_heuristic(heuristic, previous_list):
                 reward = np.random.randint(0, 4)
             probs_list.append(reward)
         return np.argmax(probs_list)
-
-async def get_response(data, pbar: tqdm, heuristic: str):
+    elif heuristic == "world_model_perplexity":
+        probs_list = []
+        for temp_previous in previous_list:
+            message = messages_start_world_model + [
+                {
+                    "role": "user",
+                    "content": temp_previous
+                }
+            ]
+            url = 'http://c002:1236/v1/chat/completions'
+            content = {
+                "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+                "messages": message,
+                "max_tokens": 1000,
+                "temperature": 0.0,
+                "stop_token_ids": [128001, 128009],
+                "logprobs": True,
+            }
+            headers = {
+                "Content-Type": "application/json"
+            }
+        
+            session_timeout = aiohttp.ClientTimeout(total=60000,sock_connect=6000,sock_read=6000)
+        
+            async with aiohttp.ClientSession(timeout=session_timeout) as session:
+                async with session.post(url, headers=headers, json=content) as world_response:
+                    try:
+                        world_response.raise_for_status()
+                        world_response = await world_response.json()
+                    except:
+                        print("Error in calling remote world model")
+                        break
+            
+            # print("gpt-4 output: ", world_response['choices'][0]['message']['content'])
+            try:
+                if "Reward:" in world_response['choices'][0]['message']['content']:
+                    reward = int(world_response['choices'][0]['message']['content'].split("Reward:")[1].strip())
+                else:
+                    reward = int(world_response['choices'][0]['message']['content'].content.strip())
+            except:
+                reward = np.random.randint(0, 4)
+            probs_list.append(reward)
+        return np.minimum(probs_list)
+        
+    
+async def get_response(data, pbar: tqdm, heuristic: str, agent_model: str, world_model: str):
     previous = "Question: " + data['question'] + "\nAnswer:"
     prediction = ""
     normalized_answer, normalized_prediction = "", ""
@@ -181,12 +226,12 @@ async def get_response(data, pbar: tqdm, heuristic: str):
             "role": "user",
             "content": previous
         })
-        url = 'http://c002:1236/v1/chat/completions'
+        url = 'http://c009:1236/v1/chat/completions'
         content = {
-            "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+            "model": agent_model,
             "messages": new_messages,
             "max_tokens": 1000,
-            "temperature": 0,
+            "temperature": 0.9,
             "stop_token_ids": [128001, 128009],
             "best_of": 3,
             "n": 3
@@ -217,10 +262,12 @@ async def get_response(data, pbar: tqdm, heuristic: str):
         for response in response_list:
             if not response.endswith('.'):
                 response = response + '.'
+            if "####" in response:
+                response = response.replace("####", "The answer is:")
             previous = previous + ' ' + response
             previous_list.append(previous)
         
-        chosen_previous = get_heuristic(heuristic, previous_list)
+        chosen_previous = await get_heuristic(heuristic, previous_list, world_model)
         previous = previous_list[chosen_previous]
         
         # update result
@@ -263,13 +310,13 @@ async def get_response(data, pbar: tqdm, heuristic: str):
     pbar.update(1)
     return d
 
-def apply_async(data_list, heuristic):
+def apply_async(data_list, heuristic, agent_model, world_model):
     pbar = tqdm(total=len(data_list))
     loop = asyncio.get_event_loop()
     if loop.is_closed():
         asyncio.set_event_loop(asyncio.new_event_loop())
         loop = asyncio.get_event_loop()
-    tasks = [loop.create_task(get_response(data, pbar, heuristic)) for data in data_list]
+    tasks = [loop.create_task(get_response(data, pbar, heuristic, agent_model, world_model)) for data in data_list]
     result = loop.run_until_complete(asyncio.gather(*tasks))
     loop.close()
     return result
@@ -277,10 +324,19 @@ def apply_async(data_list, heuristic):
 
 if __name__ == '__main__':
     start_time = time.time()
- 
-    write_file = sys.argv[1]
-    heuristic = sys.argv[2]
-    result = apply_async(data_list, heuristic)
+
+    parser = ArgumentParser()
+    parser.add_argument("--heuristic", type=str, default="random", help="Heuristic to use for selecting the next response")
+    parser.add_argument("--agent_model", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct", help="Agent model to use for generating responses")
+    parser.add_argument("--write_file", type=str, default="output.json", help="File to write the output to")
+    parser.add_argument("--world_model", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct", help="World model to use for generating responses")
+    args = parser.parse_args()
+    heuristic = args.heuristic 
+    agent_model = args.agent_model
+    world_model = args.world_model
+    write_file = open(args.write_file, 'w')
+        
+    result = apply_async(data_list, heuristic, agent_model, world_model)
     for d in result:
         write_file.write(json.dumps(d) + '\n')
     write_file.close()
