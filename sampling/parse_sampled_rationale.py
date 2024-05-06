@@ -120,7 +120,7 @@ async def get_response(data, pbar: tqdm):
             "temperature": 0,
             "stop_token_ids": [128001, 128009],
             "logprobs": True,
-            "top_logprobs": 120000,
+            "top_logprobs": 120,
         }
         headers = {
             "Content-Type": "application/json"
@@ -136,6 +136,7 @@ async def get_response(data, pbar: tqdm):
                     print("Error in calling remote server")
                     break
                 key = tokenizer.decode(following_tokens[i])
+                perplexity = min(agent_response['choices'][0]['logprobs']['top_logprobs'][0].values()) - 1
                 if key not in agent_response['choices'][0]['logprobs']['top_logprobs'][0]:
                     # for key in agent_response['choices'][0]['logprobs']['top_logprobs'][0].keys():
                     #     print(tokenizer.encode(key))
@@ -169,7 +170,7 @@ async def get_response(data, pbar: tqdm):
             "temperature": 0,
             "stop_token_ids": [128001, 128009],
             "logprobs": True,
-            "top_logprobs": 120000,
+            "top_logprobs": 120,
         }
         headers = {
             "Content-Type": "application/json"
@@ -185,6 +186,7 @@ async def get_response(data, pbar: tqdm):
                     print("Error in calling remote server")
                     break
                 key = tokenizer.decode(following_tokens[i])
+                perplexity = min(agent_response['choices'][0]['logprobs']['top_logprobs'][0].values()) - 1
                 if key not in agent_response['choices'][0]['logprobs']['top_logprobs'][0]:
                     # for key in agent_response['choices'][0]['logprobs']['top_logprobs'][0].keys():
                     #     print(tokenizer.encode(key))
@@ -228,5 +230,8 @@ for chunk in chunks:
     result = apply_async(chunk)
     for d in result:
         write_file.write(json.dumps(d) + '\n')
+# result = apply_async(lines)
+# for d in result:
+#     write_file.write(json.dumps(d) + '\n')
 write_file.close()
 print("Total TIME: ", time.time() - start_time)
