@@ -6,7 +6,6 @@ total, correct, has_answer = 0, 0, 0
 
 for i in range(len(cot_lines)):
     total += 1
-    print(i) 
     d_cot = json.loads(cot_lines[i])
     # if d_cot["normalized_answer"] == d_cot["normalized_prediction"]:
     if d_cot["answer"] == d_cot["normalized_prediction"]:

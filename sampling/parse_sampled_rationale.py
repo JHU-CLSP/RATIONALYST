@@ -13,15 +13,16 @@ import asyncio
 import aiohttp
 import time
 import numpy as np
+import editdistance
 
 
 correct, total = 0, 0
 lines = []
-write_file_train = open("llm_training_data_train.jsonl", "w")
-write_file_eval = open("llm_training_data_eval.jsonl", "w")
+write_file_train = open("llm_training_data_train_new_without_final_answer.jsonl", "w")
+write_file_eval = open("llm_training_data_eval_new_without_final_answer.jsonl", "w")
 filter_with_score = True
 
-for line in open("llama3_output_with_score.txt"):
+for line in open("llama3_output_with_score_new_without_final.txt"):
     if not line.startswith("-----"):
         total += 1
         d = json.loads(line.strip())
@@ -37,9 +38,13 @@ for line in open("llama3_output_with_score.txt"):
                 continue
         input = d['input'].replace("\n", " ")
         
+        str1 = d['input'].replace("\n", " ").replace(" ", '')
+        str2 = real_output.replace("\n", " ").replace(" ", '')
         # we only keep the generated output if without rationales it's the same as the input
         # if d['input'].replace("\n", " ").replace(" ", '') == real_output.replace("\n", " ").replace("  ", " ").replace(' ', ''):
-        if d['input'].replace("\n", " ").replace(" ", '') == real_output.replace("\n", " ").replace(" ", ''):
+        # if d['input'].replace("\n", " ").replace(" ", '') == real_output.replace("\n", " ").replace(" ", ''):
+        # print(1 - float(editdistance.eval(str1, str2)) / len(str1))
+        if 1 - float(editdistance.eval(str1, str2)) / len(str1) >= 0.9:
             correct += 1
             # find the pairs of preceeding text and rationale
             splits = d['output'].split("<BOT>")
@@ -112,7 +117,7 @@ async def get_response(data, pbar: tqdm):
             "role": "user",
             "content": preceeding + ' ' + tokenizer.decode(following_tokens[0: i])
         })
-        url = 'http://c008:1236/v1/chat/completions'
+        url = 'http://c013:1236/v1/chat/completions'
         content = {
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "messages": new_messages,
@@ -162,7 +167,7 @@ async def get_response(data, pbar: tqdm):
             "role": "user",
             "content": preceeding + ' ' + rationale + ' ' + tokenizer.decode(following_tokens[0: i])
         })
-        url = 'http://c008:1236/v1/chat/completions'
+        url = 'http://c013:1236/v1/chat/completions'
         content = {
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
             "messages": new_messages,
@@ -222,7 +227,7 @@ def apply_async(data_list):
 
 start_time = time.time()
 
-write_file = open("llm_training_data_filtered.jsonl", "w")
+write_file = open("llm_training_data_filtered_new_without_final.jsonl", "w")
 
 chunks = [lines[i:i + 1000] for i in range(0, len(lines), 1000)]
 
