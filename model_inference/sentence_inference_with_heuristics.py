@@ -29,6 +29,22 @@ client = AsyncOpenAI(
     )
 )
 
+
+base_url = 'http://c002'
+
+def get_url():
+    server_dict = {
+        0: f'{base_url}:1532/v1/chat/completions',
+        1: f'{base_url}:1533/v1/chat/completions',
+        2: f'{base_url}:1534/v1/chat/completions',
+        3: f'{base_url}:1535/v1/chat/completions',
+        4: f'{base_url}:1536/v1/chat/completions',
+        5: f'{base_url}:1537/v1/chat/completions',
+        6: f'{base_url}:1538/v1/chat/completions',
+        7: f'{base_url}:1539/v1/chat/completions',
+    }
+    return server_dict[random.randint(0, 7)]
+
 def extract_and_convert_number_real(text):
     text = str(text)
     # deal with 2 + 3 = 5
@@ -136,7 +152,7 @@ async def get_heuristic(heuristic, previous_list, world_model):
                     "content": temp_previous
                 }
             ]
-            url = 'http://c008:1236/v1/chat/completions'
+            url = get_url()
             content = {
                 "model": "meta-llama/Meta-Llama-3-8B-Instruct",
                 "messages": message,
@@ -179,7 +195,7 @@ async def get_heuristic(heuristic, previous_list, world_model):
                     "content": temp_previous
                 }
             ]
-            url = 'http://c002:1236/v1/chat/completions'
+            url = get_url()
             content = {
                 "model": "meta-llama/Meta-Llama-3-8B-Instruct",
                 "messages": message,
@@ -226,7 +242,7 @@ async def get_response(data, pbar: tqdm, heuristic: str, agent_model: str, world
             "role": "user",
             "content": previous
         })
-        url = 'http://c009:1236/v1/chat/completions'
+        url = get_url()
         content = {
             "model": agent_model,
             "messages": new_messages,
