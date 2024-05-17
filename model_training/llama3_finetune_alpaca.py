@@ -245,3 +245,25 @@ if __name__ == "__main__":
     train()
     
     
+
+''' LoRA
+
+# LoRA setup: pip install peft
+from peft import (
+    TaskType,
+    LoraConfig,
+    get_peft_model,
+)
+
+# lora config
+peft_config = LoraConfig(
+    task_type=TaskType.CAUSAL_LM,
+    inference_mode=False,
+    r=8,
+    lora_alpha=32,
+    lora_dropout=0.1,
+    target_modules=['q_proj', 'k_proj', 'v_proj'],
+    bias='none',
+)
+model = get_peft_model(model, peft_config)
+'''
