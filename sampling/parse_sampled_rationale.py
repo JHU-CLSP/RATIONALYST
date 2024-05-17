@@ -95,12 +95,8 @@ messages_start_rationale = [
 
 from transformers import AutoTokenizer
 
-agent_model = LLM(
-    model="meta-llama/Meta-Llama-3-8B-Instruct",
-    trust_remote_code=True,
-    tensor_parallel_size=1,
-)
-tokenizer = agent_model.get_tokenizer()
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B-Instruct")
+
 
 async def get_response(data, pbar: tqdm):    
     preceeding, rationale, following = data['preceeding'], data['rationale'], data['following'].replace("####", "The answer is:")
