@@ -3,3 +3,4 @@
 *output/*
 *output_old/*
 *.jsonl
+*.json
