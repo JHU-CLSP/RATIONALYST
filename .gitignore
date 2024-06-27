@@ -5,3 +5,4 @@
 *.jsonl
 *.json
 *.txt
+*nohup.out
