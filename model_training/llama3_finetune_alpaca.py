@@ -22,9 +22,13 @@ import torch
 import transformers
 from torch.utils.data import Dataset
 from transformers import Trainer
+import wandb
+
+wandb.login(key='f39ea96e3a8fb8a9553e708edfc4d8b66e6740ce')
+wandb.init(project='Total_world_model_training', entity='dongwei_jiang')
 
 IGNORE_INDEX = -100
-DEFAULT_PAD_TOKEN = "[PAD]"
+DEFAULT_PAD_TOKEN = "<pad>"
 DEFAULT_EOS_TOKEN = "</s>"
 DEFAULT_BOS_TOKEN = "<s>"
 DEFAULT_UNK_TOKEN = "<unk>"
@@ -42,6 +46,26 @@ PROMPT_DICT = {
 }
 
 
+# LoRA setup: pip install peft
+from peft import (
+    TaskType,
+    LoraConfig,
+    get_peft_model,
+    prepare_model_for_kbit_training
+)
+
+# lora config
+peft_config = LoraConfig(
+    task_type=TaskType.CAUSAL_LM,
+    inference_mode=False,
+    r=1,
+    lora_alpha=32,
+    lora_dropout=0.1,
+    target_modules=['q_proj', 'k_proj', 'v_proj'],
+    bias='none',
+)
+use_lora = False
+
 @dataclass
 class ModelArguments:
     model_name_or_path: Optional[str] = field(default="facebook/opt-125m")
@@ -58,7 +82,7 @@ class TrainingArguments(transformers.TrainingArguments):
     cache_dir: Optional[str] = field(default=None)
     optim: str = field(default="adamw_torch")
     model_max_length: int = field(
-        default=512,
+        default=1024,
         metadata={"help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."},
     )
 
@@ -140,15 +164,13 @@ class SupervisedDataset(Dataset):
         for row in list_data_dict:
             d = [
                 {
-                    "role": "system",
-                    "content": "Your task is to add rationales given to a piece of text. The rationales should be added after each sentence. The rationals should help you with predicting future text. You can add rationals by writing <BOT>rational<EOT>. Other than the rationales, please do not modify the original text."
-                },
-                {
                     "role": "user",
                     "content": row["preceeding"]
                 },
             ]
             text = tokenizer.apply_chat_template(d, tokenize=False)
+            # temp = len(tokenizer.apply_chat_template(d, tokenize=True))
+            # print(temp)
             sources.append(text)
         targets = []
         for row in list_data_dict:
@@ -207,8 +229,14 @@ def train():
 
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
+        # load_in_8bit=True,
+        # torch_dtype=torch.float16,
         cache_dir=training_args.cache_dir,
     )
+    if use_lora:
+        # model = prepare_model_for_kbit_training(model)
+        model = get_peft_model(model, peft_config)
+        model.model_parallel = True
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
@@ -221,18 +249,14 @@ def train():
     special_tokens_dict = dict()
     if tokenizer.pad_token is None:
         special_tokens_dict["pad_token"] = DEFAULT_PAD_TOKEN
-    if tokenizer.eos_token is None:
-        special_tokens_dict["eos_token"] = DEFAULT_EOS_TOKEN
-    if tokenizer.bos_token is None:
-        special_tokens_dict["bos_token"] = DEFAULT_BOS_TOKEN
-    if tokenizer.unk_token is None:
-        special_tokens_dict["unk_token"] = DEFAULT_UNK_TOKEN
+    num_new_tokens = tokenizer.add_special_tokens(special_tokens_dict)
 
     smart_tokenizer_and_embedding_resize(
         special_tokens_dict=special_tokens_dict,
         tokenizer=tokenizer,
         model=model,
     )
+    # training_args.deepspeed='./ds_config.json'
 
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
     trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
@@ -245,25 +269,3 @@ if __name__ == "__main__":
     train()
     
     
-
-''' LoRA
-
-# LoRA setup: pip install peft
-from peft import (
-    TaskType,
-    LoraConfig,
-    get_peft_model,
-)
-
-# lora config
-peft_config = LoraConfig(
-    task_type=TaskType.CAUSAL_LM,
-    inference_mode=False,
-    r=8,
-    lora_alpha=32,
-    lora_dropout=0.1,
-    target_modules=['q_proj', 'k_proj', 'v_proj'],
-    bias='none',
-)
-model = get_peft_model(model, peft_config)
-'''
