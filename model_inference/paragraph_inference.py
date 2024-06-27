@@ -127,7 +127,7 @@ async def get_response(data, pbar: tqdm, heuristic: str, agent_model: str, world
         "role": "user",
         "content": previous
     })
-    url = 'http://c013:1236/v1/chat/completions'
+    url = 'http://c008:1236/v1/chat/completions'
     content = {
         "model": agent_model,
         "messages": new_messages,
