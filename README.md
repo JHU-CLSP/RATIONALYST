@@ -1,9 +1,16 @@
 # reasoning_world_model
 
 ## Step 1: Prefilter on The Pile
-`cd sampling/prefilter_code && sh start_multiple_server.sh`
+`cd sampling/prefilter_code`
+
+`sh start_multiple_server.sh`
 
 ## Step 2: Sample rationales from The Pile and the training set of GSM8K and ECQA
+`cd sampling/sampling_code`
+
+`python sampling_rationales_all_datasets.py/sampling_rationales_c4.py`
+
+`python `
 
 ## Step 2: Sample rationales for GSM8K
 `python inference_llama3.py`
