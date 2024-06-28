@@ -10,12 +10,11 @@
 
 `python sampling_rationales_all_datasets.py/sampling_rationales_c4.py`
 
-`python `
+`python calculate_perplexity_sampled_rationale_new_method.py`
 
-## Step 2: Sample rationales for GSM8K
-`python inference_llama3.py`
+`python filter_rationale.py`
 
-## Step 2: Parse rationales and create training data for LLAMA3 fine-tuning
+## Step 3: Parse rationales and create training data for LLAMA3 fine-tuning
 `python parse_sampled_rationale.py`
 
 ## Step 3: LLAMA3 model training
