@@ -22,14 +22,14 @@ lines = []
 
 filter_with_score = True
 
-base_url = ['http://c014', 'http://c004', 'http://c002']
+base_url = ['http://c014']
 ports = [1233, 1234, 1235, 1236, 1237, 1238, 1239, 1240]
 
 def get_url():
     return random.choice(base_url) + ':' + str(random.choice(ports)) + '/v1/completions'
 
 # file_name = "/weka/scratch/djiang21/Dongwei_quiet_star/reasoning_world_model/sampling/llama3_output_with_score_new_the_pile.txt"
-file_name = "/weka/scratch/djiang21/Dongwei_quiet_star/reasoning_world_model/sampling/sampling_results/llama3_output_with_score_new_without_final_all_datasets.txt"
+file_name = sys.argv[1]
 
 for line in open(file_name):
     # print(line)
@@ -40,8 +40,8 @@ for line in open(file_name):
         except:
             print("error in reading")
             continue
-        # split string at the position of <BOT>
-        splits = d['output'].split(" <BOT>")
+        # split string at the position of <R>
+        splits = d['output'].split(" <R>")
         real_output = splits[0]
         for split in splits[1:]:
             try:
@@ -60,7 +60,7 @@ for line in open(file_name):
         if len(str1) > 0 and 1 - float(editdistance.eval(str1, str2)) / len(str1) >= 0.9:
             correct += 1
             # find the pairs of preceeding text and rationale
-            splits = d['output'].split("<BOT>")
+            splits = d['output'].split("<R>")
             preceeding = ""
             for i in range(1, len(splits)):
                 try:
@@ -84,6 +84,7 @@ for line in open(file_name):
 
 print("First round exact match with input: ")
 print(correct, total, correct / total)
+exit()
 # shuffle the lines
 random.shuffle(lines)
 

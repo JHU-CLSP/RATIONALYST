@@ -17,23 +17,7 @@ start_time = time.time()
 messages_start_rationale = [
     {
         "role": "system",
-        "content": "Your task is to add rationales given to a piece of text. The rationales should be added after each sentence. The rationals should help you with predicting future text. You can add rationals by writing <BOT>rational<EOT>. Other than the rationales, please do not modify the original text."
-    },
-    {
-        "role": "user",
-        "content": "Question: Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?\nAnswer: Natalia sold 48/2 = <<48/2=24>>24 clips in May. Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. The answer is 72",
-    },
-    {
-        "role": "assistant",
-        "content": "Question: Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?\n <BOT>Let's first calculate the amount of chips Natalia sold in May<EOT> Answer: Natalia sold 48/2 = <<48/2=24>>24 clips in May. <BOT>We have already calculated the number of chips in May, now we should calculate the sum of chips in April and May<EOT> Natalia sold 48+24 = <<48+24=72>>72 clips altogether in April and May. The answer is 72",
-    },
-    {
-        "role": "user",
-        "content": "Quesetion: Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?\nAnswer: Weng earns 12/60 = $<<12/60=0.2>>0.2 per minute. Working 50 minutes, she earned 0.2 x 50 = $<<0.2*50=10>>10. The answer is 10"
-    },
-    {
-        "role": "assistant",
-        "content": "Quesetion: Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?\nAnswer: <BOT>To find out how much Weng earns per minute, we need to divide her hourly rate by the number of minutes in an hour<EOT> Weng earns 12/60 = $<<12/60=0.2>>0.2 per minute. <BOT>Now, to find out her total earnings for 50 minutes, we multiply the rate per minute by the number of minutes she worked<EOT> Working 50 minutes, she earned 0.2 x 50 = $<<0.2*50=10>>10. The answer is 10"
+        "content": "Your task is to add rationales given to a piece of text. The rationals should help you with predicting future text and not repeating previous generations. You can add rationals by writing <BOT>rational<EOT>. Each <BOT> should pair with one <EOT>. These rationales should represent the hidden rationales unstated in the original text that facilitate the reasoning. Other than the additional rationales, please do not modify the original text!"
     },
     {
         "role": "user",
@@ -42,14 +26,6 @@ messages_start_rationale = [
     {
         "role": "assistant",
         "content": "Question: Betty is saving money for a new wallet which costs $100. Betty has only half of the money she needs. Her parents decided to give her $15 for that purpose, and her grandparents twice as much as her parents. How much more money does Betty need to buy the wallet?\nAnswer: <BOT>To determine how much money Betty initially has, we calculate half of the total wallet cost<EOT> In the beginning, Betty has only 100 / 2 = $<<100/2=50>>50. <BOT>Betty’s grandparents contribute twice what her parents gave, so we need to calculate this amount<EOT> Betty's grandparents gave her 15 * 2 = $<<15*2=30>>30. <BOT>To find out how much more Betty needs to save, we subtract the total contributions and her initial amount from the total cost of the wallet<EOT> This means, Betty needs 100 - 50 - 30 - 15 = $<<100-50-30-15=5>>5 more. The answer is 5"
-    },
-    {
-        "role": "user",
-        "content": "Question: Leah had 32 chocolates and her sister had 42. If they ate 35, how many pieces do they have left in total?\nAnswer: Originally, Leah had 32 chocolates. Her sister had 42. So in total they had 32 + 42 = 74. After eating 35, they had 74 - 35 = 39. The answer is 39"
-    },
-    {
-        "role": "assistant",
-        "content": "Question: Leah had 32 chocolates and her sister had 42. If they ate 35, how many pieces do they have left in total?\nAnswer: <BOT>First, we need to calculate the total number of chocolates Leah and her sister had initially<EOT> Originally, Leah had 32 chocolates. Her sister had 42. So in total they had 32 + 42 = 74. <BOT>After they ate 35 chocolates, we need to calculate how many chocolates they have left<EOT> After eating 35, they had 74 - 35 = 39. The answer is 39"
     },
     {
         "role": "user",
@@ -88,32 +64,93 @@ messages_ecqa = [
     },
 ]
 
+messages_math = [
+    {
+        "role": "user",
+        "content": "Question: The real numbers $a$ and $b$ satisfy \[\begin{pmatrix} 2 \\ a \\ -7 \end{pmatrix} \times \begin{pmatrix} 5 \\ 4 \\ b \end{pmatrix} = \mathbf{0}.\]Enter the ordered pair $(a,b).$ Answer: In general, $\mathbf{v} \times \mathbf{w} = \mathbf{0}$ if and only if the vectors $\mathbf{v}$ and $\mathbf{w}$ are proportional.  Thus, the vectors $\begin{pmatrix} 2 \\ a \\ -7 \end{pmatrix}$ and $\begin{pmatrix} 5 \\ 4 \\ b \end{pmatrix}$ are proportional.  Thus, \[\frac{5}{2} = \frac{4}{a} = \frac{b}{-7}.\]Solving, we find $(a,b) = \boxed{\left( \frac{8}{5}, -\frac{35}{2} \right)}.$"
+    },
+    {
+        "role": "assistant",
+        "content": "Question: The real numbers $a$ and $b$ satisfy \[\begin{pmatrix} 2 \\ a \\ -7 \end{pmatrix} \times \begin{pmatrix} 5 \\ 4 \\ b \end{pmatrix} = \mathbf{0}.\]Enter the ordered pair $(a,b).$ Answer: <BOT>Let's first understand the condition for the cross product of two vectors to be zero<EOT>In general, $\mathbf{v} \times \mathbf{w} = \mathbf{0}$ if and only if the vectors $\mathbf{v}$ and $\mathbf{w}$ are proportional. <BOT>Let's understand the condition for two vectors to be proportional<EOT>Thus, the vectors $\begin{pmatrix} 2 \\ a \\ -7 \end{pmatrix}$ and $\begin{pmatrix} 5 \\ 4 \\ b \end{pmatrix}$ are proportional. <BOT>Let's write the proportionality condition for the two vectors<EOT>Thus, \[\frac{5}{2} = \frac{4}{a} = \frac{b}{-7}.\] <BOT>Let's solve the proportionality condition to find the values of a and b<EOT>Solving, we find $(a,b) = \boxed{\left( \frac{8}{5}, -\frac{35}{2} \right)}.$"
+    }
+]
+
+messages_mmlu_pro = [
+    {
+        "role": "user",
+        "content": "Question: Which word best summarizes Weber's explanation of the development of formally rational law?\nChoices: A - Socialism., B - Legitimacy., C - Authority., D - Democracy., E - Bureaucracy., F - Conflict., G - Capitalism., H - Charisma., I - Co-operation., J - Tradition.\nThought Process: A: Let's think step by step. We refer to Wikipedia articles on jurisprudence for help. Weber explained the development of formal rationality in laws as how the modern society moved from tradition to rationality, where people decide actions based less on how they were culturally done and more on expected utilities. How rational individuals optimize efficiency of accomplishing tasks for higher rewards is a core principle of Capitalism. The answer is (G)."
+    },
+    {
+        "role": "assistant",
+        "content": "Question: Which word best summarizes Weber's explanation of the development of formally rational law?\nChoices: A - Socialism., B - Legitimacy., C - Authority., D - Democracy., E - Bureaucracy., F - Conflict., G - Capitalism., H - Charisma., I - Co-operation., J - Tradition.\nA: Let's think step by step. <BOT>We need to refer to prominant source of jurisprudence<EOT>We refer to Wikipedia articles on jurisprudence for help. Weber explained the development of formal rationality in laws as how the modern society moved from tradition to rationality, where people decide actions based less on how they were culturally done and more on expected utilities. <BOT>Let's try to link the Weber's explanation with answer choices<EOT> How rational individuals optimize efficiency of accomplishing tasks for higher rewards is a core principle of Capitalism. The answer is (G)."
+    }
+]
+
 messages_start_rationale.extend(messages_ecqa)
+messages_start_rationale.extend(messages_math)
+messages_start_rationale.extend(messages_mmlu_pro)
 
 gsm8k_data_list = load_dataset("gsm8k", 'main')
 gsm8k_data_list = list(gsm8k_data_list['train'])
 gsm8k_documents = ["Question: " + gsm8k_data['question'] + "\nAnswer: " + gsm8k_data['answer'] for gsm8k_data in gsm8k_data_list]
+gsm8k_documents = [(item, 'gsm8k') for item in gsm8k_documents]
 
-ecqa_data_list = load_dataset("yangdong/ecqa")['train']
-ecqa_documents = ["Question: " + ecqa_data['q_text'] + "\nAnswer Choices: " + " ".join([ecqa_data[f'q_op{i}'] for i in range(1, 5)]) for ecqa_data in ecqa_data_list]
+ecqa_documents = []
+ecqa_key_mapping = {}
+ecqa_dataset = load_dataset("tau/commonsense_qa")['train']
+for line in open("/weka/scratch/djiang21/Dongwei_quiet_star/reasoning_world_model/sampling/sampling_code/ecqa.jsonl", "r"):
+    d = json.loads(line)
+    ecqa_key_mapping[d['id']] = [d['positives'], d['negatives']]
+    
+for ecqa_data in ecqa_dataset:    
+    positives = ' '.join(ecqa_key_mapping[ecqa_data['id']][0])
+    negatives = ecqa_key_mapping[ecqa_data['id']][1]
+    positive_insert_id = ord(ecqa_data['answerKey']) - ord('A')
+    # insert the negative choice at the corrspoding position in positives
+    negatives = negatives[:positive_insert_id] + [positives] + negatives[positive_insert_id:]
+    temp_str = "Question: " + ecqa_data['question'] + "\nChoices: " 
+    for i in range(len(ecqa_data["choices"]["text"])):
+        temp_str += chr(ord('A') + i) + ' - ' + ecqa_data["choices"]["text"][i] + " "
+    temp_str = temp_str[:-1] + '\n'
+    temp_str += "Answer: " + ' '.join(negatives)
+    temp_str += ' The answer is ' + ecqa_data['answerKey']
+    ecqa_documents.append(temp_str)
+ecqa_documents = [(item, 'ecqa') for item in ecqa_documents]
 
 arc_data_list = load_dataset("ai2_arc", 'ARC-Challenge')['train']
-arc_documents = ["Question: " + arc_data['question'] + "\nAnswer Choices: " + " ".join(arc_data['choices']['text']) for arc_data in arc_data_list]
+arc_documents = []
+for arc_data in arc_data_list:
+    temp_str = "Question: " + arc_data['question'] + "\nChoices: "
+    for i in range(len(arc_data['choices']['text'])):
+        temp_str += chr(ord('A') + i) + ' - ' + arc_data['choices']['text'][i] + " "
+    temp_str = temp_str[:-1] + '\n'
+    temp_str += "Answer: " + arc_data['answerKey']
+    arc_documents.append(temp_str)
+arc_documents = [(item, 'arc') for item in arc_documents]
 
 proofwriter_data_list = load_dataset("tasksource/proofwriter")['train']
 proofwriter_documents = ["Question: " + proofwriter_data['question'] + "\nTheory: " + proofwriter_data['theory'] for proofwriter_data in proofwriter_data_list]
 
 math_data_list = load_dataset("lighteval/MATH", "all")["train"]
 math_documents = ["Question: " + math_data['problem'] + "\nAnswer: " + math_data['solution'] for math_data in math_data_list]
+math_documents = [(item, 'math') for item in math_documents]
 
 hellaswag_data_list = load_dataset("Rowan/hellaswag")['train']
 hella_documents = ["Context: " + hellaswag_data['ctx'] + "\Endings:\n" + "\n".join(hellaswag_data['endings']) for hellaswag_data in hellaswag_data_list]
+hella_documents = [(item, 'hellaswag') for item in hella_documents]
 
 mmlu_pro_data_list = load_dataset("TIGER-Lab/MMLU-Pro")['validation']
-mmlu_pro_documents = ["question: " + mmlu_pro_data['question'] + "\noptions: " + " ".join(mmlu_pro_data['options']) + "\nCOT Thought Process: " + mmlu_pro_data["cot_content"] for mmlu_pro_data in mmlu_pro_data_list]
+mmlu_pro_documents = []
+for mmlu_pro_data in mmlu_pro_data_list:
+    temp_str = "Question: " + mmlu_pro_data['question'] + "\nChoices: " 
+    for i in range(len(mmlu_pro_data['options'])):
+        temp_str += chr(ord('A') + i) + ' - ' + mmlu_pro_data['options'][i] + " "
+    temp_str = temp_str[:-1] + '\n'
+    temp_str += mmlu_pro_data["cot_content"]
+    mmlu_pro_documents.append(temp_str)
+mmlu_pro_documents = [(item, 'mmlu_pro') for item in mmlu_pro_documents]
 
-data_list = gsm8k_documents + ecqa_documents + arc_documents + proofwriter_documents + math_documents + hella_documents + mmlu_pro_documents
-
+data_list = gsm8k_documents + ecqa_documents + math_documents + mmlu_pro_documents
 
 # base_url = ['http://c014', 'http://c002', 'http://c004', "http://c010"]
 base_url = ['http://c014']
@@ -124,7 +161,7 @@ def get_url():
 
 
 async def get_response(data, pbar: tqdm):
-    previous = data    
+    previous = data[0]    
     new_messages = messages_start_rationale.copy()
     new_messages.append({
         "role": "user",
@@ -134,7 +171,7 @@ async def get_response(data, pbar: tqdm):
     content = {
         "model": "meta-llama/Meta-Llama-3-8B-Instruct",
         "messages": new_messages,
-        "max_tokens": 2000,
+        "max_tokens": 3000,
         "temperature": 0.0,
         "stop_token_ids": [128001, 128009],
         "seed": 14
@@ -152,9 +189,10 @@ async def get_response(data, pbar: tqdm):
             except Exception as e:
                 print(e)
                 print("Error in calling remote agent server")
+                return {"input": data, "output": "Error in calling remote agent server", "source": data[1]}
     
     response = agent_response['choices'][0]['message']['content']
-    d = {"input": data, "output": response}
+    d = {"input": data, "output": response, "source": data[1]}
     pbar.update(1)
     return d
 
