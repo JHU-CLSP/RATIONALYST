@@ -155,10 +155,10 @@ data_list = gsm8k_documents + ecqa_documents + math_documents + mmlu_pro_documen
 # base_url = ['http://c014', 'http://c002', 'http://c004', "http://c010"]
 base_url = ['http://c014']
 ports = [1233, 1234, 1235, 1236, 1237, 1238, 1239, 1240]
+base_model = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 def get_url():
     return random.choice(base_url) + ':' + str(random.choice(ports)) + '/v1/chat/completions'
-
 
 async def get_response(data, pbar: tqdm):
     previous = data[0]    
@@ -169,7 +169,7 @@ async def get_response(data, pbar: tqdm):
     })
     url = get_url()
     content = {
-        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "model": base_model,
         "messages": new_messages,
         "max_tokens": 3000,
         "temperature": 0.0,
