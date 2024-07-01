@@ -6,4 +6,6 @@
 *.json
 *.txt
 *.tsv
+*/__pycache__/
+*/wandb/
 *nohup.out
