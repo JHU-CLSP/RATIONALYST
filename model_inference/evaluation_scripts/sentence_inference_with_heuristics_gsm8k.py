@@ -441,10 +441,6 @@ for data in rand_list_from_train:
     l.pop()
     messages_gsm8k.extend(l)
 
-async def run_lm_locally(sampling_params, prompts):
-    res = llm.generate(prompts, sampling_params)
-    return res
-
 async def get_heuristic(heuristic, previous_list, world_model, answer=None):
     if heuristic == "gpt4_world":
         probs_list = []
@@ -561,7 +557,8 @@ async def get_heuristic(heuristic, previous_list, world_model, answer=None):
                         break
             if debug:
                 print("world model output: ", world_response['choices'][0]['message']['content'])
-            prob = sum(world_response['choices'][0]['logprobs']['token_logprobs']) / len(world_response['choices'][0]['logprobs']['token_logprobs'])
+            prob = sum(item["logprob"] for item in world_response['choices'][0]['logprobs']['content'][:-1]) / (len(world_response['choices'][0]['logprobs']['content']) - 1)
+            # print([item["token"] for item in world_response['choices'][0]['logprobs']['content']])
             
             baseline_prob = []
             temp_previous_baseline = ""
