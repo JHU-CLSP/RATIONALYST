@@ -224,7 +224,10 @@ def get_messages(dataset_name):
             messages_math.extend(l)
         return messages_math
     elif dataset_name == "ecqa":
-        messages_ecqa = []
+        messages_ecqa = [{
+            "role": "system",
+            "content": "You are a smart assistant that answer multiple chocies. You will think about the question and generate the reasoning trajectory step by step. You will only generate ONE sentence that extends the reasoning trajectory that solves the question given the question and partial answer reasoning trajectory.  You won't repeat your previous generation while you're generating the sentence. If you think you're ready to output the answer, you can finish the response with The answer is: <Answer>."
+        }]
         ecqa_key_mapping = {}
         for line in open("/weka/scratch/djiang21/Dongwei_quiet_star/reasoning_world_model/sampling/sampling_code/ecqa.jsonl", "r"):
             d = json.loads(line)
@@ -246,6 +249,7 @@ def get_messages(dataset_name):
             negatives = negatives[:positive_insert_id] + [positives] + negatives[positive_insert_id:]
             for i in range(len(negatives)):
                 l.append({"role": "assistant", "content": negatives[i]})
+                # l.append({"role": "assistant", "content": 'Let\'s look at answer choice: ' + chr(ord('A') + i) + ', '+ negatives[i]})
             l.append({"role": "assistant", "content": ' The answer is: ' + ecqa_data['answerKey']})
             messages_ecqa.extend(l)
         return messages_ecqa
@@ -398,13 +402,18 @@ async def get_response(data, pbar: tqdm, heuristic: str, agent_model: str, world
         
         chosen_previous, chosen_world_model_response = await get_heuristic(heuristic, previous_list, world_model)
         previous = previous_list[chosen_previous]
-        new_messages.append({
-            "role": "assistant",
-            "content": response_list[chosen_previous]
-        })
+        if response_list[chosen_previous] != "":
+        # if True:
+            new_messages.append({
+                "role": "assistant",
+                "content": response_list[chosen_previous]
+            })
         # special case for when the heuristic is ''world_model_content'', the rationales are used to help with the generation of next action
         if chosen_world_model_response is not None and chosen_world_model_response.strip() != "We are ready to output the final answer":
-            previous_temp = previous + " <BOT>" + chosen_world_model_response + "<EOT>"
+            if dataset == "ecqa":
+                previous_temp = previous + " <BOT>" + chosen_world_model_response + ". Specifically, let\'s look at answer choice " + chr(ord('A') + trail) + ": " "<EOT>"
+            else:
+                previous_temp = previous + " <BOT>" + chosen_world_model_response + "<EOT>"
         # if debug:
         #     print("Chosen response: " + str(chosen_previous))
         
@@ -552,6 +561,7 @@ if __name__ == '__main__':
     if debug:
         # only test on 10 samples
         for i in range(10):
+            print("The answer is: ", get_normalized_answer(dataset, data_list[i]))
             apply_async([data_list[i]], heuristic, agent_model, world_model, agent_url, dataset)
         exit()
     
