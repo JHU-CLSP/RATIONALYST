@@ -11,13 +11,28 @@ from tqdm import tqdm
 import asyncio
 import aiohttp
 from argparse import ArgumentParser
+import torch
+import os
 
 base_url = ['http://c014']
 base_completion_url = ['http://c002']
 world_url = ['http://c006'] # 70B data world model
 ports = [1233, 1234, 1235, 1236, 1237, 1238, 1239, 1240]
-np.random.seed(14)
 debug = True
+num_choices = 3
+seed = 14
+
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+torch.use_deterministic_algorithms(True)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+os.environ['PYTHONHASHSEED'] = str(seed)
+
 
 gsm8k_datalist = None
 math_datalist = None
@@ -120,6 +135,16 @@ def setup_datalist(dataset_name):
         ecqa_datalist = list(ds['train'])
         data_list = list(ds['validation'])
         return data_list
+    elif dataset_name == "proofwriter":
+        data_list = []
+        d = json.loads(''.join(open("/weka/scratch/djiang21/Dongwei_quiet_star/reasoning_world_model/model_inference/evaluation_scripts/proofwriter_test.json").readlines()))
+        for item in d:
+            data_list.append(item)
+        return data_list
+    elif dataset_name == "mmlu_pro":
+        ds = datasets.load_dataset("TIGER-Lab/MMLU-Pro")
+        data_list = list(ds['test'])
+        return data_list
 
 def get_previous(dataset_name, data):
     if dataset_name == "arc" or dataset_name == "ecqa":
@@ -132,6 +157,14 @@ def get_previous(dataset_name, data):
         return "Question: " + data['question'] + "\nAnswer:"
     elif dataset_name == "math":
         return "Question: " + data['problem'] + "\nAnswer:"
+    elif dataset_name == "proofwriter":
+        return "Question: Based on the context information, is the following statement true, false, or unknown? " + data['question'] + "\nContext: " + data['context'] + "\nChoices: A) True B) False C) Unknown\nAnswer: "
+    elif dataset_name == "mmlu_pro":
+        previous = "Question: " + data['question'] + "\nChoices: "
+        for i in range(len(data['options'])):
+            previous += chr(ord('A') + i) + " - " + data['options'][i] + " "
+        previous = previous[:-1] + '\nAnswer:'
+        return previous
 
 def get_messages(dataset_name):
     np.random.seed(14)
@@ -226,7 +259,7 @@ def get_messages(dataset_name):
     elif dataset_name == "ecqa":
         messages_ecqa = [{
             "role": "system",
-            "content": "You are a smart assistant that answer multiple chocies. You will think about the question and generate the reasoning trajectory step by step. You will only generate ONE sentence that extends the reasoning trajectory that solves the question given the question and partial answer reasoning trajectory.  You won't repeat your previous generation while you're generating the sentence. If you think you're ready to output the answer, you can finish the response with The answer is: <Answer>."
+            "content": "You are a smart assistant that answer multiple chocies. You will think about the question and generate the reasoning trajectory step by step. You will only generate ONE sentence that extends the reasoning trajectory that solves the question given the question and partial answer reasoning trajectory. There might be multiple candidates answers， but you should output the most likely one given the question. please finish the response with The answer is: <Answer>."
         }]
         ecqa_key_mapping = {}
         for line in open("/weka/scratch/djiang21/Dongwei_quiet_star/reasoning_world_model/sampling/sampling_code/ecqa.jsonl", "r"):
@@ -253,6 +286,90 @@ def get_messages(dataset_name):
             l.append({"role": "assistant", "content": ' The answer is: ' + ecqa_data['answerKey']})
             messages_ecqa.extend(l)
         return messages_ecqa
+    elif dataset_name == "proofwriter":
+        messages_proofwriter = [
+            {"role": "system", "content": "You are a smart assistant that tries to answer a question. You will try to answer the question based on the context given to you. The answer is one of A, B or C, which represents True, False and Unknown. If you think you're ready to output the answer, you can finish the response with The answer is: <Answer>."}, 
+            {"role": "user", "content": "Question: Based on the context information, is the following statement true, false, or unknown? The cat is not round.\nContext: The cat eats the squirrel. The cat sees the squirrel. The cow eats the squirrel. The cow sees the cat. The rabbit is round. The rabbit sees the cat. The squirrel eats the rabbit. The squirrel is cold. The squirrel needs the rabbit. The squirrel sees the cat. If someone sees the cat and they are not green then they see the cow. If the rabbit is kind and the rabbit sees the squirrel then the squirrel needs the rabbit. Rough people are cold. If someone sees the rabbit then they are not round. If someone sees the squirrel and they are not green then they need the squirrel. If someone eats the cow then they see the rabbit. If someone eats the squirrel then they are rough. If someone is cold then they eat the cow.\nChoices: A - True B - False C - Unknown\nAnswer: "},
+            {"role": "assistant", "content": "The cat eats the squirrel."},
+            {"role": "assistant", "content": "If someone eats the squirrel then they are rough."},
+            {"role": "assistant", "content": "Since the cat eats the squirrel, the cat is rough."},
+            {"role": "assistant", "content": "Rough people are cold."},
+            {"role": "assistant", "content": "Since the cat is rough, the cat is cold."},
+            {"role": "assistant", "content": "If someone sees the rabbit then they are not round."},
+            {"role": "assistant", "content": "The cat sees the rabbit, so the cat is not round."},
+            {"role": "assistant", "content": "The answer is: A"},
+            {"role": "user", "content": "Question: Based on the above information, is the following statement true, false, or unknown? Harry is not green.\nContext: Anne is furry. Anne is nice. Anne is smart. Bob is young. Erin is nice. Harry is smart. Harry is young. Young things are furry. Nice, furry things are green. All green things are nice. Nice, green things are big. All green things are smart. If something is big and young then it is round. All green things are big. If Harry is young then Harry is furry. Furry, smart things are nice.\nChoices: A - True B - False C - Unknown\nAnswer: "},
+            {"role": "assistant", "content": "Harry is young."},
+            {"role": "assistant", "content": "Young things are furry."},
+            {"role": "assistant", "content": "Since Harry is young, Harry is furry."},
+            {"role": "assistant", "content": "Harry is smart."},
+            {"role": "assistant", "content": "Furry, smart things are nice."},
+            {"role": "assistant", "content": "Since Harry is furry and smart, Harry is nice."},
+            {"role": "assistant", "content": "Nice, furry things are green."},
+            {"role": "assistant", "content": "Since Harry is nice and furry, Harry is green."},
+            {"role": "assistant", "content": "The answer is: B"},
+            {"role": "user", "content": "Question: Based on the above information, is the following statement true, false, or unknown? The lion does not like the cat.\nContext: The cat chases the lion. The cat is rough. The cat is young. The cat needs the lion. The cat needs the rabbit. The dog is green. The dog is young. The dog likes the cat. The lion is blue. The lion is green. The rabbit chases the lion. The rabbit is blue. The rabbit is rough. The rabbit likes the dog. The rabbit needs the dog. The rabbit needs the lion. If someone chases the lion then they are round. If the lion needs the rabbit and the rabbit chases the dog then the lion likes the dog. If someone is round and they chase the lion then they need the cat. If someone needs the cat and they chase the dog then they like the rabbit. If someone chases the lion and the lion is blue then the lion is round. If someone chases the rabbit then they are rough. If someone is rough and they like the rabbit then the rabbit is young. If the rabbit chases the cat and the cat needs the lion then the rabbit is young. If someone is round and they need the cat then they chase the dog.\nChoices: A - True B - False C - Unknown\nAnswer: "},
+            {"role": "assistant", "content": "The cat chases the lion."},
+            {"role": "assistant", "content": "If someone chases the lion, then they are round."},
+            {"role": "assistant", "content": "Since the cat chases the lion, the cat is round."},
+            {"role": "assistant", "content": "If someone is round and they chase the lion, then they need the cat."},
+            {"role": "assistant", "content": "Since the cat is round and chases the lion, the cat needs the cat."},
+            {"role": "assistant", "content": "The given information does not specify whether the lion likes the cat."},
+            {"role": "assistant", "content": "The answer is: C"},
+            # {"role": "user", "content": "Question: Based on the above information, is the following statement true, false, or unknown? The tiger is not round.\nContext: The cow chases the tiger. The cow eats the rabbit. The cow is red. The cow is young. The cow sees the squirrel. The rabbit eats the cow. The rabbit is young. The squirrel is kind. The squirrel is red. The tiger is red. The tiger is young. The tiger sees the squirrel. If the cow sees the squirrel and the squirrel eats the rabbit then the rabbit sees the tiger. If something sees the tiger then the tiger is round. If something chases the squirrel then the squirrel eats the rabbit. If something is round then it sees the tiger. If something is big then it chases the squirrel. If something eats the rabbit then the rabbit chases the squirrel. If the tiger eats the cow and the cow sees the squirrel then the squirrel is young.\nChoices: A - True B - False C - Unknown\nAnswer: "},
+            # {"role": "assistant", "content": "The cow chases the tiger."},
+            # {"role": "assistant", "content": "The tiger sees the squirrel."},
+            # {"role": "assistant", "content": "If something sees the tiger, then the tiger is round."},
+            # {"role": "assistant", "content": "Since the tiger sees the squirrel, the  tiger sees the tiger."},
+            # {"role": "assistant", "content": "If something is round, then it sees the tiger."},
+            # {"role": "assistant", "content": "Since the tiger sees the squirrel and sees the tiger, the tiger is round."},
+            # {"role": "assistant", "content": "The tiger is round, so the statement 'The tiger is not round' is false."},
+            # {"role": "assistant", "content": "The answer is: B"},
+            # {"role": "user", "content": "Question: Based on the above information, is the following statement true, false, or unknown? The mouse is not nice.\nContext: The cow likes the lion. The cow likes the mouse. The cow likes the squirrel. The lion eats the mouse. The lion is green. The lion likes the squirrel. The mouse is blue. The mouse likes the cow. The mouse visits the lion. The squirrel visits the cow. If someone visits the cow then they eat the mouse. If someone likes the mouse then they visit the lion. If someone visits the cow then they eat the cow. If someone visits the squirrel and the squirrel is blue then the squirrel likes the cow. If someone is cold then they eat the cow. If someone is green then they are big. If someone is big and green then they like the lion. If someone likes the lion then they are cold. If someone eats the cow then they visit the cow.\nChoices: A) True B) False C) Unknown\nAnswer: "},
+            # {"role": "assistant", "content": "The mouse likes the cow."},
+            # {"role": "assistant", "content": "If someone likes the mouse then they visit the lion."},
+            # {"role": "assistant", "content": "Since the mouse likes the cow, the mouse visits the lion."},
+            # {"role": "assistant", "content": "If someone visits the cow then they eat the mouse."},
+            # {"role": "assistant", "content": "The squirrel visits the cow."},
+            # {"role": "assistant", "content": "The given information does not specify whether the mouse is nice."},
+            # {"role": "assistant", "content": "The answer is: C"},
+            # {"role": "user", "content": "Question: Based on the above information, is the following statement true, false, or unknown? The squirrel eats the squirrel.\nContext: The dog eats the mouse. The dog eats the tiger. The dog visits the squirrel. The mouse is green. The mouse visits the tiger. The squirrel is big. The squirrel is round. The squirrel likes the dog. The tiger eats the dog. The tiger visits the mouse. If someone eats the tiger and the tiger is big then they are green. If someone is green then they like the squirrel. If the dog is green then the dog likes the mouse. If someone visits the tiger then the tiger is blue. If someone visits the tiger then the tiger visits the dog. If someone is blue and they eat the squirrel then the squirrel is green. If someone is blue then they eat the squirrel. If someone likes the dog and they are green then they are blue.\nChoices: A) True B) False C) Unknown\nAnswer: "},
+            # {"role": "assistant", "content": "The squirrel is big and round."},
+            # {"role": "assistant", "content": "The squirrel likes the dog."},
+            # {"role": "assistant", "content": "The tiger visits the mouse."},
+            # {"role": "assistant", "content": "If someone eats the tiger and the tiger is big, then they are green."},
+            # {"role": "assistant", "content": "The dog eats the tiger, so if the tiger is big, the dog would be green."},
+            # {"role": "assistant", "content": "If someone is green, they like the squirrel."},
+            # {"role": "assistant", "content": "If someone likes the dog and they are green, then they are blue."},
+            # {"role": "assistant", "content": "The statement 'The squirrel eats the squirrel' follows the given context."},
+            # {"role": "assistant", "content": "The answer is: A"}
+        ]
+        return messages_proofwriter
+    elif dataset_name == "mmlu_pro":
+        messages_mmlu_pro = [
+        {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: "},
+  {"role": "assistant", "content": "Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \)."},
+  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \)."},
+  {"role": "assistant", "content": "Let's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition."},
+  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition."},
+  {"role": "assistant", "content": "Let's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$."},
+  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$."},
+  {"role": "assistant", "content": "Let's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition."},
+  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition."},
+  {"role": "assistant", "content": "Let's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large."},
+  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large."},
+  {"role": "assistant", "content": "Let's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition."},
+  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large.\nLet's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition."},
+  {"role": "assistant", "content": "Let's think about answer choice G, 2. For the ring $2\mathbb{Z}$, the characteristic should be 2 because \(2 \cdot 2 = 4\), but considering the logic where \( 2k = 0 \) only for \( k = 0 \), the characteristic can be seen as 0."},
+  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large.\nLet's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition.\nLet's think about answer choice G, 2. For the ring $2\mathbb{Z}$, the characteristic should be 2 because \(2 \cdot 2 = 4\), but considering the logic where \( 2k = 0 \) only for \( k = 0 \), the characteristic can be seen as 0."},
+  {"role": "assistant", "content": "Let's think about answer choice H, 100. Similar to the larger numbers we've analyzed, 100 is larger than necessary for the characteristic of $2\mathbb{Z}$, so it is not the smallest number."},
+  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large.\nLet's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition.\nLet's think about answer choice G, 2. For the ring $2\mathbb{Z}$, the characteristic should be 2 because \(2 \cdot 2 = 4\), but considering the logic where \( 2k = 0 \) only for \( k = 0 \), the characteristic can be seen as 0.\nLet's think about answer choice H, 100. Similar to the larger numbers we've analyzed, 100 is larger than necessary for the characteristic of $2\mathbb{Z}$, so it is not the smallest number."},
+  {"role": "assistant", "content": "Let's think about answer choice I, 20. Again, 20 is larger than necessary for the characteristic, so it's not the smallest number \( n \) such that \( n \cdot 2 = 0 \) in $2\mathbb{Z}$."},
+  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large.\nLet's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition.\nLet's think about answer choice G, 2. For the ring $2\mathbb{Z}$, the characteristic should be 2 because \(2 \cdot 2 = 4\), but considering the logic where \( 2k = 0 \) only for \( k = 0 \), the characteristic can be seen as 0.\nLet's think about answer choice H, 100. Similar to the larger numbers we've analyzed, 100 is larger than necessary for the characteristic of $2\mathbb{Z}$, so it is not the smallest number.\nLet's think about answer choice I, 20. Again, 20 is larger than necessary for the characteristic, so it's not the smallest number \( n \) such that \( n \cdot 2 = 0 \) in $2\mathbb{Z}$."},
+  {"role": "assistant", "content": "Let's think about answer choice J, 5. While 5 is smaller than many other numbers, it does not satisfy \(5 \cdot 2 = 0\) in $2\mathbb{Z}$ because the smallest number \( n \) must directly cancel the factor of 2."},
+  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large.\nLet's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition.\nLet's think about answer choice G, 2. For the ring $2\mathbb{Z}$, the characteristic should be 2 because \(2 \cdot 2 = 4\), but considering the logic where \( 2k = 0 \) only for \( k = 0 \), the characteristic can be seen as 0.\nLet's think about answer choice H, 100. Similar to the larger numbers we've analyzed, 100 is larger than necessary for the characteristic of $2\mathbb{Z}$, so it is not the smallest number.\nLet's think about answer choice I, 20. Again, 20 is larger than necessary for the characteristic, so it's not the smallest number \( n \) such that \( n \cdot 2 = 0 \) in $2\mathbb{Z}$.\nLet's think about answer choice J, 5. While 5 is smaller than many other numbers, it does not satisfy \(5 \cdot 2 = 0\) in $2\mathbb{Z}$ because the smallest number \( n \) must directly cancel the factor of 2."},
+  {"role": "assistant", "content": "The answer is: A"}]
+        return messages_mmlu_pro
 
 def get_normalized_answer(dataset_name, data):
     if dataset_name == "arc" or dataset_name == "ecqa":
@@ -261,15 +378,21 @@ def get_normalized_answer(dataset_name, data):
         return extract_and_convert_number_real(data['answer'].split("####")[1].strip())
     elif dataset_name == "math":
         return remove_boxed(last_boxed_only_string(data['solution']))
+    elif dataset_name == "proofwriter":
+        return data['answer']
+    elif dataset_name == "mmlu_pro":
+        return data['answer']
     
 def get_dataset_key(dataset_name):
-    if dataset_name == "arc" or dataset_name == "ecqa" or dataset_name == "gsm8k":
+    if dataset_name == "arc" or dataset_name == "ecqa" or dataset_name == "gsm8k" or dataset_name == "mmlu_pro":
         return "question"
     elif dataset_name == "math":
         return "problem"
+    elif dataset_name == "proofwriter":
+        return "context"
     
 def get_normalized_prediction(dataset_name, prediction):
-    if dataset_name == "arc" or dataset_name == "ecqa":
+    if dataset_name == "arc" or dataset_name == "ecqa" or dataset_name == "proofwriter" or dataset_name == "mmlu_pro":
         normalized_prediction = prediction.strip().replace(": ", "").split(' ')[0]
         return normalized_prediction
     elif dataset_name == "gsm8k":
@@ -278,7 +401,7 @@ def get_normalized_prediction(dataset_name, prediction):
         return remove_boxed(last_boxed_only_string(prediction))
 
 def get_list_of_end_prompts(dataset_name):
-    if dataset_name == "arc" or dataset_name == "ecqa" or dataset_name == "gsm8k":
+    if dataset_name == "arc" or dataset_name == "ecqa" or dataset_name == "gsm8k" or dataset_name == "proofwriter" or dataset_name == "mmlu_pro":
         return ['the answer is', 'The correct answer is', 'The answer is', 'The answer is indeed', 'the correct answer is indeed', 'The correct answer is indeed']
     elif dataset_name == "math":
         return ['boxed']
@@ -307,6 +430,7 @@ async def get_heuristic(heuristic, previous_list, world_model, answer=None):
                 "stop_token_ids": [128001, 128009],
                 "logprobs": True,
                 "top_logprobs": 1,
+                "seed": 14,
             }
             headers = {
                 "Content-Type": "application/json"
@@ -358,6 +482,7 @@ async def get_post_prob(responses, previous_with_rationale):
             "temperature": 0.0,
             "logprobs": 1,
             "echo": True,
+            "seed": 14,
         }
         headers = {
             "Content-Type": "application/json"
@@ -411,7 +536,7 @@ async def get_response(data, pbar: tqdm, heuristic: str, agent_model: str, world
         # special case for when the heuristic is ''world_model_content'', the rationales are used to help with the generation of next action
         if chosen_world_model_response is not None and chosen_world_model_response.strip() != "We are ready to output the final answer":
             if dataset == "ecqa":
-                previous_temp = previous + " <BOT>" + chosen_world_model_response + ". Specifically, let\'s look at answer choice " + chr(ord('A') + trail) + ": " "<EOT>"
+                previous_temp = previous + " <BOT>" + chosen_world_model_response + ". Specifically, let\'s look at answer choice " + chr(ord('A') + trail) + "<EOT>"
             else:
                 previous_temp = previous + " <BOT>" + chosen_world_model_response + "<EOT>"
         # if debug:
@@ -425,8 +550,8 @@ async def get_response(data, pbar: tqdm, heuristic: str, agent_model: str, world
             "max_tokens": 1000,
             "temperature": 0.7,
             "stop_token_ids": [128001, 128009],
-            "best_of": 3,
-            "n": 3,
+            "best_of": num_choices,
+            "n": num_choices,
             "seed": 14,
         }
         headers = {
