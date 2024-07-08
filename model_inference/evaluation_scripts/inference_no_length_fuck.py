@@ -13,6 +13,8 @@ import aiohttp
 from argparse import ArgumentParser
 import torch
 import os
+from utils import *
+
 
 base_url = ['http://c014']
 base_completion_url = ['http://c002']
@@ -37,6 +39,7 @@ os.environ['PYTHONHASHSEED'] = str(seed)
 gsm8k_datalist = None
 math_datalist = None
 ecqa_datalist = None
+mmlu_datalist = None
 
 def get_url():
     return random.choice(base_url) + ':' + str(random.choice(ports)) + '/v1/chat/completions'
@@ -67,41 +70,68 @@ def extract_and_convert_number_real(text):
     else:
         return text
 
-def last_boxed_only_string(string):
-    idx = string.rfind("\\boxed")
-    if idx < 0:
-        idx = string.rfind("\\fbox")
-        if idx < 0:
-            return None
+    # linebreaks
+    string = string.replace("\n", "")
 
-    i = idx
-    right_brace_idx = None
-    num_left_braces_open = 0
-    while i < len(string):
-        if string[i] == "{":
-            num_left_braces_open += 1
-        if string[i] == "}":
-            num_left_braces_open -= 1
-            if num_left_braces_open == 0:
-                right_brace_idx = i
-                break
-        i += 1
-    
-    if right_brace_idx == None:
-        retval = None
-    else:
-        retval = string[idx:right_brace_idx + 1]
-    
-    return retval
+    # remove inverse spaces
+    string = string.replace("\\!", "")
 
-def remove_boxed(s):
-    left = "\\boxed{"
-    try:
-        assert s[:len(left)] == left
-        assert s[-1] == "}"
-        return s[len(left):-1]
-    except:
-        return None
+    # replace \\ with \
+    string = string.replace("\\\\", "\\")
+
+    # replace tfrac and dfrac with frac
+    string = string.replace("tfrac", "frac")
+    string = string.replace("dfrac", "frac")
+
+    # remove \left and \right
+    string = string.replace("\\left", "")
+    string = string.replace("\\right", "")
+
+    # Remove circ (degrees)
+    string = string.replace("^{\\circ}", "")
+    string = string.replace("^\\circ", "")
+
+    # remove dollar signs
+    string = string.replace("\\$", "")
+
+    # remove units (on the right)
+    string = remove_right_units(string)
+
+    # remove percentage
+    string = string.replace("\\%", "")
+    string = string.replace("\%", "")  # noqa: W605
+
+    # " 0." equivalent to " ." and "{0." equivalent to "{." Alternatively, add "0" if "." is the start of the string
+    string = string.replace(" .", " 0.")
+    string = string.replace("{.", "{0.")
+    # if empty, return empty string
+    if len(string) == 0:
+        return string
+    if string[0] == ".":
+        string = "0" + string
+
+    # to consider: get rid of e.g. "k = " or "q = " at beginning
+    if len(string.split("=")) == 2:
+        if len(string.split("=")[0]) <= 2:
+            string = string.split("=")[1]
+
+    # fix sqrt3 --> sqrt{3}
+    string = fix_sqrt(string)
+
+    # remove spaces
+    string = string.replace(" ", "")
+
+    # \frac1b or \frac12 --> \frac{1}{b} and \frac{1}{2}, etc. Even works with \frac1{72} (but not \frac{72}1). Also does a/b --> \\frac{a}{b}
+    string = fix_fracs(string)
+
+    # manually change 0.5 --> \frac{1}{2}
+    if string == "0.5":
+        string = "\\frac{1}{2}"
+
+    # NOTE: X/Y changed to \frac{X}{Y} in dataset, but in simple cases fix in case the model output is X/Y
+    string = fix_a_slash_b(string)
+
+    return string
 
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B-Instruct")
 
@@ -144,6 +174,13 @@ def setup_datalist(dataset_name):
     elif dataset_name == "mmlu_pro":
         ds = datasets.load_dataset("TIGER-Lab/MMLU-Pro")
         data_list = list(ds['test'])
+        global mmlu_datalist
+        mmlu_datalist = {}
+        validation_list = list(ds['validation'])
+        for data in validation_list:
+            if data['category'] not in mmlu_datalist:
+                mmlu_datalist[data['category']] = []
+            mmlu_datalist[data['category']].append(data)
         return data_list
 
 def get_previous(dataset_name, data):
@@ -166,7 +203,7 @@ def get_previous(dataset_name, data):
         previous = previous[:-1] + '\nAnswer:'
         return previous
 
-def get_messages(dataset_name):
+def get_messages(dataset_name, category=None):
     np.random.seed(14)
     if dataset_name == "arc":
         messages_arc = [
@@ -244,7 +281,7 @@ def get_messages(dataset_name):
         return messages_gsm8k
     elif dataset_name == "math":
         messages_math = [{"role": "system", "content": "You are a smart assistant that solves math problems. You will only generate one sentence that extends the reasoning trajectory that solves the question given the question and partial answer reasoning trajectory. If you think you're ready to output the answer, you can wrap your answer with \\boxed{}. Please follow this format metrically"}]
-        rand_list_from_train = np.random.choice(math_datalist, 9, replace=False)
+        rand_list_from_train = np.random.choice(math_datalist, 5, replace=False)
         for data in rand_list_from_train:
             l = []
             d = {"role": "user", "content": "Question: " + data['problem'] + "\nAnswer:"}
@@ -254,6 +291,7 @@ def get_messages(dataset_name):
                 if answer == "":
                     continue
                 l.append({"role": "assistant", "content": answer})
+            # l.append({"role": "assistant", "content": data['solution']})
             messages_math.extend(l)
         return messages_math
     elif dataset_name == "ecqa":
@@ -346,29 +384,21 @@ def get_messages(dataset_name):
         ]
         return messages_proofwriter
     elif dataset_name == "mmlu_pro":
-        messages_mmlu_pro = [
-        {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: "},
-  {"role": "assistant", "content": "Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \)."},
-  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \)."},
-  {"role": "assistant", "content": "Let's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition."},
-  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition."},
-  {"role": "assistant", "content": "Let's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$."},
-  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$."},
-  {"role": "assistant", "content": "Let's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition."},
-  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition."},
-  {"role": "assistant", "content": "Let's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large."},
-  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large."},
-  {"role": "assistant", "content": "Let's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition."},
-  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large.\nLet's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition."},
-  {"role": "assistant", "content": "Let's think about answer choice G, 2. For the ring $2\mathbb{Z}$, the characteristic should be 2 because \(2 \cdot 2 = 4\), but considering the logic where \( 2k = 0 \) only for \( k = 0 \), the characteristic can be seen as 0."},
-  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large.\nLet's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition.\nLet's think about answer choice G, 2. For the ring $2\mathbb{Z}$, the characteristic should be 2 because \(2 \cdot 2 = 4\), but considering the logic where \( 2k = 0 \) only for \( k = 0 \), the characteristic can be seen as 0."},
-  {"role": "assistant", "content": "Let's think about answer choice H, 100. Similar to the larger numbers we've analyzed, 100 is larger than necessary for the characteristic of $2\mathbb{Z}$, so it is not the smallest number."},
-  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large.\nLet's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition.\nLet's think about answer choice G, 2. For the ring $2\mathbb{Z}$, the characteristic should be 2 because \(2 \cdot 2 = 4\), but considering the logic where \( 2k = 0 \) only for \( k = 0 \), the characteristic can be seen as 0.\nLet's think about answer choice H, 100. Similar to the larger numbers we've analyzed, 100 is larger than necessary for the characteristic of $2\mathbb{Z}$, so it is not the smallest number."},
-  {"role": "assistant", "content": "Let's think about answer choice I, 20. Again, 20 is larger than necessary for the characteristic, so it's not the smallest number \( n \) such that \( n \cdot 2 = 0 \) in $2\mathbb{Z}$."},
-  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large.\nLet's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition.\nLet's think about answer choice G, 2. For the ring $2\mathbb{Z}$, the characteristic should be 2 because \(2 \cdot 2 = 4\), but considering the logic where \( 2k = 0 \) only for \( k = 0 \), the characteristic can be seen as 0.\nLet's think about answer choice H, 100. Similar to the larger numbers we've analyzed, 100 is larger than necessary for the characteristic of $2\mathbb{Z}$, so it is not the smallest number.\nLet's think about answer choice I, 20. Again, 20 is larger than necessary for the characteristic, so it's not the smallest number \( n \) such that \( n \cdot 2 = 0 \) in $2\mathbb{Z}$."},
-  {"role": "assistant", "content": "Let's think about answer choice J, 5. While 5 is smaller than many other numbers, it does not satisfy \(5 \cdot 2 = 0\) in $2\mathbb{Z}$ because the smallest number \( n \) must directly cancel the factor of 2."},
-  {"role": "user", "content": "Question: The symmetric group $S_n$ has $n!$ elements, hence it is not true that $S_{10}$ has 10 elements. Find the characteristic of the ring $2\mathbb{Z}$.\nChoices: A - 0 B - 30 C - 3 D - 10 E - 12 F - 50 G - 2 H - 100 I - 20 J - 5\nAnswer: Let's think about answer choice A, 0. A characteristic of a ring \( R \) is \( n \) if the statement \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) implies that \( k \) is a multiple of \( n \). Assume that \( ka = 0 \) for all \( a \in 2\mathbb{Z} \) for some \( k \). In particular, \( 2k = 0 \). Hence, \( k = 0 \) and \( n = 0 \).\nLet's think about answer choice B, 30. The characteristic of $2\mathbb{Z}$ is the smallest positive integer \( n \) such that \( n \cdot 2 = 0 \), so 30 is too large and not the smallest number satisfying this condition.\nLet's think about answer choice C, 3. The characteristic of $2\mathbb{Z}$ should be related to 2, so 3 is not suitable because \(3 \cdot 2 \neq 0\) in $2\mathbb{Z}$.\nLet's think about answer choice D, 10. For $2\mathbb{Z}$, the characteristic should be the smallest number \( n \) such that \( n \cdot 2 = 0 \), and 10 is not the smallest number that satisfies this condition.\nLet's think about answer choice E, 12. Since the characteristic should be smaller than 12, considering \(2 \cdot 2 = 4\) and \(6 \cdot 2 = 12\), it indicates 12 is too large.\nLet's think about answer choice F, 50. A characteristic of 50 means \(50 \cdot 2 = 0\), but 50 is larger than necessary, so this is not the smallest number satisfying the condition.\nLet's think about answer choice G, 2. For the ring $2\mathbb{Z}$, the characteristic should be 2 because \(2 \cdot 2 = 4\), but considering the logic where \( 2k = 0 \) only for \( k = 0 \), the characteristic can be seen as 0.\nLet's think about answer choice H, 100. Similar to the larger numbers we've analyzed, 100 is larger than necessary for the characteristic of $2\mathbb{Z}$, so it is not the smallest number.\nLet's think about answer choice I, 20. Again, 20 is larger than necessary for the characteristic, so it's not the smallest number \( n \) such that \( n \cdot 2 = 0 \) in $2\mathbb{Z}$.\nLet's think about answer choice J, 5. While 5 is smaller than many other numbers, it does not satisfy \(5 \cdot 2 = 0\) in $2\mathbb{Z}$ because the smallest number \( n \) must directly cancel the factor of 2."},
-  {"role": "assistant", "content": "The answer is: A"}]
+        messages_mmlu_pro = [{
+            "role": "system",
+            "content": "The following are multiple-choice questions (with answers) about" + category + ". Think step by step and then finish your answer with \"The answer is (X)\" where X is the correct letter choice"
+        }]
+        data_list = np.random.choice(mmlu_datalist[category], 5, replace=False)
+        for i in range(5):
+            d = {"role": "user", "content": "Question: " + data_list[i]['question'] + "\nChoices: "}
+            for j in range(len(data_list[i]['options'])):
+                d['content'] += chr(ord('A') + j) + " - " + data_list[i]['options'][j] + " "
+            d['content'] = d['content'][:-1] + '\nAnswer:'
+            messages_mmlu_pro.append(d)
+            cot_reasoning = data_list[i]["cot_content"].replace("A: ", "")
+            cot_reasoning_splits = cot_reasoning.split(". ")
+            for cot_reasoning_split in cot_reasoning_splits:
+                messages_mmlu_pro.append({"role": "assistant", "content": cot_reasoning_split})
         return messages_mmlu_pro
 
 def get_normalized_answer(dataset_name, data):
@@ -377,7 +407,18 @@ def get_normalized_answer(dataset_name, data):
     elif dataset_name == "gsm8k":
         return extract_and_convert_number_real(data['answer'].split("####")[1].strip())
     elif dataset_name == "math":
-        return remove_boxed(last_boxed_only_string(data['solution']))
+        solution = data['solution']
+        # indices = [pos for pos, char in enumerate(solution) if char == "$"]
+        # if len(indices) <= 1:
+        #     solution = solution
+        # else:
+        #     solution = solution[indices[0] + 1 : indices[-1]]
+        res = remove_boxed(last_boxed_only_string(solution))
+        try:
+            res = strip_string(res)
+        except:
+            pass
+        return res
     elif dataset_name == "proofwriter":
         return data['answer']
     elif dataset_name == "mmlu_pro":
@@ -392,13 +433,31 @@ def get_dataset_key(dataset_name):
         return "context"
     
 def get_normalized_prediction(dataset_name, prediction):
-    if dataset_name == "arc" or dataset_name == "ecqa" or dataset_name == "proofwriter" or dataset_name == "mmlu_pro":
+    if dataset_name == "arc" or dataset_name == "ecqa" or dataset_name == "proofwriter":
         normalized_prediction = prediction.strip().replace(": ", "").split(' ')[0]
         return normalized_prediction
     elif dataset_name == "gsm8k":
         return extract_and_convert_number_real(prediction)
     elif dataset_name == "math":
-        return remove_boxed(last_boxed_only_string(prediction))
+        # indices = [pos for pos, char in enumerate(prediction) if char == "$"]
+        # if len(indices) <= 1:
+        #     prediction = prediction
+        # else:
+        #     prediction = prediction[indices[0] + 1 : indices[-1]]
+        res = remove_boxed(last_boxed_only_string(prediction))
+        try:
+            res = strip_string(res)
+        except:
+            pass
+        return res
+    elif dataset_name == "mmlu_pro":
+        regex1 = re.compile("answer is \(?\([A-J]\)?\)")
+        if regex1.search(prediction):
+            return regex1.search(prediction).group().split('(')[1][0]
+        regex2 = re.compile("\.*\[aA\]nswer:\s*\([A-J]\)")
+        if regex2.search(prediction):
+            return regex2.search(prediction).group().split('(')[1][0]
+        return random.choice(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'])
 
 def get_list_of_end_prompts(dataset_name):
     if dataset_name == "arc" or dataset_name == "ecqa" or dataset_name == "gsm8k" or dataset_name == "proofwriter" or dataset_name == "mmlu_pro":
@@ -511,7 +570,10 @@ async def get_response(data, pbar: tqdm, heuristic: str, agent_model: str, world
     previous = get_previous(dataset, data)
     prediction, response_list = "", [""]
     normalized_answer, normalized_prediction = "", ""
-    new_messages = get_messages(dataset).copy()
+    if dataset != "mmlu_pro":
+        new_messages = get_messages(dataset).copy()
+    else:
+        new_messages = get_messages(dataset, data['category']).copy()
     new_messages.append({
         "role": "user",
         "content": previous
@@ -591,17 +653,18 @@ async def get_response(data, pbar: tqdm, heuristic: str, agent_model: str, world
             for term in get_list_of_end_prompts(dataset):
                 if term in previous:
                     try:
-                        if dataset != "math":
+                        if dataset != "math" and dataset != "mmlu_pro":
                             prediction = previous.split(term)[1].replace('\n', ' ').strip()
                         else:
                             prediction = previous
                         normalized_prediction = get_normalized_prediction(dataset, prediction)
-                        if normalized_prediction == "":
+                        if normalized_prediction is None or normalized_prediction == "":
                             pass
                         else:
                             has_found_answer = True
                             break
                     except:
+                        print(prediction)
                         print("Error")
                 if has_found_answer:
                     break
@@ -663,7 +726,10 @@ if __name__ == '__main__':
     debug = args.debug
     
     data_list = setup_datalist(args.dataset)
-    new_messages = get_messages(dataset).copy()
+    if dataset != "mmlu_pro":
+        new_messages = get_messages(dataset).copy()
+    else:
+        new_messages = get_messages(dataset, "math").copy()
     print("prompt length: ", len(tokenizer.apply_chat_template(new_messages, tokenize=False)))
     
     if compare_file_good is not None and compare_file_bad is not None:
