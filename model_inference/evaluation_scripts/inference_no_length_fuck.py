@@ -138,7 +138,7 @@ tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B-Instruct")
 messages_start_rationale = [
     {
         "role": "system",
-        "content": "Your task is to generate future text given preceeding text. If you find text enclosed in <BOT> and <EOT> tokens, those are rationales that may or may not help you with future generations"
+        "content": "Your task is to generate future text given preceeding text and rationale that guide future reasoning. The rationales start with the word 'Rationale: '. Please generate text that is consistent with the rationales and preceeding text."
     },
 ]
 
@@ -386,7 +386,7 @@ def get_messages(dataset_name, category=None):
     elif dataset_name == "mmlu_pro":
         messages_mmlu_pro = [{
             "role": "system",
-            "content": "The following are multiple-choice questions (with answers) about" + category + ". Think step by step and then finish your answer with \"The answer is (X)\" where X is the correct letter choice"
+            "content": "The following are multiple-choice questions (with answers) about " + category + ". Please think step by step. You will only generate one sentence that extends the reasoning trajectory that solves the question given the question and partial answer reasoning trajectory. When you're ready, please finish your answer with \"The answer is (X)\" where X is the correct letter choice. Please always include the parentheses around the letter choice."
         }]
         data_list = np.random.choice(mmlu_datalist[category], 5, replace=False)
         for i in range(5):
@@ -523,16 +523,22 @@ async def get_post_prob(responses, previous_with_rationale):
     prob_list = []
     for response in responses:
         following_length = len(tokenizer.tokenize(response))
-        message_with_rationale = messages_start_rationale + [
-            {
-                "role": "user",
-                "content": previous_with_rationale
-            },
-            {
-                "role": "assistant",
-                "content": response
-            }
-        ]
+        # message_with_rationale = messages_start_rationale + [
+        #     {
+        #         "role": "user",
+        #         "content": previous_with_rationale
+        #     },
+        #     {
+        #         "role": "assistant",
+        #         "content": response
+        #     }
+        # ]
+        message_with_rationale = messages_start_rationale.copy()
+        message_with_rationale.extend(previous_with_rationale)
+        message_with_rationale.extend([{
+            "role": "assistant",
+            "content": response
+        }])
         url = get_world_model_url_completion()
         content = {
             "model": "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -554,7 +560,9 @@ async def get_post_prob(responses, previous_with_rationale):
                     world_response = await world_response.json()
                 except Exception as e:
                     print(e)
-                    print("Error in calling remote world model")
+                    # if there is an error, return a random response
+                    return response[np.random.randint(len(responses))]
+                    
         perplexity_with_rationale_list = world_response['choices'][0]['logprobs']['token_logprobs'][-following_length - 1: -1]
         # decay with 0.9
         # perplexity_with_rationale_list = [item * 0.9 ** i for i, item in enumerate(perplexity_with_rationale_list)]
@@ -596,11 +604,15 @@ async def get_response(data, pbar: tqdm, heuristic: str, agent_model: str, world
                 "content": response_list[chosen_previous]
             })
         # special case for when the heuristic is ''world_model_content'', the rationales are used to help with the generation of next action
-        if chosen_world_model_response is not None and chosen_world_model_response.strip() != "We are ready to output the final answer":
-            if dataset == "ecqa":
-                previous_temp = previous + " <BOT>" + chosen_world_model_response + ". Specifically, let\'s look at answer choice " + chr(ord('A') + trail) + "<EOT>"
-            else:
-                previous_temp = previous + " <BOT>" + chosen_world_model_response + "<EOT>"
+        if chosen_world_model_response is not None:
+            # previous_temp = previous + "\nRationale: " + chosen_world_model_response
+            previous_temp = new_messages.copy()
+            if previous_temp[0]['role'] == "system":
+                previous_temp = previous_temp[1:]
+            previous_temp.append({
+                "role": "assistant",
+                "content": "Rationale: " + chosen_world_model_response
+            })
         # if debug:
         #     print("Chosen response: " + str(chosen_previous))
         
@@ -753,7 +765,8 @@ if __name__ == '__main__':
         # only test on 10 samples
         for i in range(10):
             print("The answer is: ", get_normalized_answer(dataset, data_list[i]))
-            apply_async([data_list[i]], heuristic, agent_model, world_model, agent_url, dataset)
+            result = apply_async([data_list[i]], heuristic, agent_model, world_model, agent_url, dataset)
+            print("Prediction: ", result[0]['normalized_prediction'])
         exit()
     
     chunks = [data_list[i:i + 2000] for i in range(0, len(data_list), 2000)]
