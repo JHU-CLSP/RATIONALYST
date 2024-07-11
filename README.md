@@ -14,13 +14,12 @@
 
 `python filter_rationale.py`
 
-## Step 3: Parse rationales and create training data for LLAMA3 fine-tuning
+## Step 3: Parse rationales and create training data for Rationalyst fine-tuning
 `python parse_sampled_rationale.py`
 
-## Step 3: LLAMA3 model training
+## Step 4: Rationalyst model training
 `sbatch sbatch_llama_finetune.sh`
 
-
-## Step 4: Model inference
+## Step 5: Model inference
 With world model: `sbatch sbatch_llama_inference_world_model_single.sh`
-Without world model: `sbatch_llama_inference_single.sh`
+Without world model: `sbatch sbatch_llama_inference_single.sh`
