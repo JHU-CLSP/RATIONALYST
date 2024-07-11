@@ -20,6 +20,8 @@
 ## Step 4: Rationalyst model training
 `sbatch sbatch_llama_finetune.sh`
 
+The Rationalyst fine-tuned with rationales sampled from GSM8K and ECQA can be found [here](https://huggingface.co/Dongwei/Rationalyst_reasoning_datasets).
+
 ## Step 5: Model inference
 With world model: `sbatch sbatch_llama_inference_world_model_single.sh`
 Without world model: `sbatch sbatch_llama_inference_single.sh`
