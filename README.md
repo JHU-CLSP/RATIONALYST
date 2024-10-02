@@ -1,27 +1,48 @@
-# Rationalyst
+# 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓
 
-## Step 1: Prefilter on The Pile
-`cd sampling/prefilter_code`
+𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 is a model pre-trained on implicit rationales extracted from web text and reasoning datasets to provide process supervision. 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 generalizes over reasoning tasks with little human intervention while beating much larger models!
 
-`sh start_multiple_server.sh`
+## 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 Installation
+We assume the use of slurm for model training and inference.
 
-## Step 2: Sample rationales from The Pile and the training set of GSM8K and ECQA
-`cd sampling/sampling_code`
+To install other requirements: `pip install -r requirements.txt`
 
-`python sampling_rationales_all_datasets.py/sampling_rationales_c4.py`
 
-`python calculate_perplexity_sampled_rationale_new_method.py`
+## Running experiments
+### Step 1: Prefilter on The Pile
+Due to the size of The Pile, we implement a pre-filtering process to identify reasoning-rich documents by (1) computing the average semantic embedding of representative reasoning training sets using a paragraph embedding model, and (2) selecting documents from unlabelled datasets that exceed a cosine similarity threshold
 
-`python filter_rationale.py`
+```
+cd sampling/prefilter_code
+sh start_multiple_server.sh
+```
 
-## Step 3: Parse rationales and create training data for Rationalyst fine-tuning
-`python parse_sampled_rationale.py`
+### Step 2: Sample rationales from The Pile and the training set of GSM8K and ECQA
+Implicit rationales are often embedded in unlabelled text, reflecting natural thought processes in daily communication. Our extraction process aims to make these rationales explicit. 
 
-## Step 4: Rationalyst model training
-`sbatch sbatch_llama_finetune.sh`
+```
+cd sampling/sampling_code
+python sampling_rationales_all_datasets.py/sampling_rationales_c4.py
+python calculate_perplexity_sampled_rationale_new_method.py
+python filter_rationale.py
+```
 
-The Rationalyst fine-tuned with rationales sampled from GSM8K and ECQA can be found here.
+Rationales extracted from GSM8K can be found [here](https://huggingface.co/datasets/Dongwei/reasoning_world_model)
 
-## Step 5: Model inference
-With world model: `sbatch sbatch_llama_inference_world_model_single.sh`
-Without world model: `sbatch sbatch_llama_inference_single.sh`
+### Step 3: 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 model training
+The goal of 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 training is to develop a model that can generate implicit rationales to guide stepwise problem-solving during inference time. We choose to fine-tune a LLaMa-3-8B model on extracted rationales from step 2.
+
+```
+python parse_sampled_rationale.py
+sbatch sbatch_llama_finetune.sh
+```
+
+Trained RATIONALYST can be found [here](https://huggingface.co/Dongwei/Rationalyst_reasoning_datasets)
+
+### Step 4: Model inference
+How does 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 work during inference time? It's a stepwise process: 1. 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 generates rationale based on the current trajectory. 2. Agent LLM proposes multiple next reasoning steps. 3. Implicit rationales help estimate which step is most probable. 4. The best step is chosen, and the process repeats.
+
+```
+With RATIONALYST (using implicit supervision): sbatch sbatch_llama_inference_world_model_single.sh
+Without RATIONALYST: sbatch sbatch_llama_inference_single.sh
+```
