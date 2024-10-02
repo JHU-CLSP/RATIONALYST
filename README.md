@@ -40,7 +40,9 @@ sbatch sbatch_llama_finetune.sh
 Trained RATIONALYST can be found [here](https://huggingface.co/Dongwei/Rationalyst_reasoning_datasets)
 
 ### Step 4: Model inference
-How does 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 work during inference time? It's a stepwise process: 1. 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 generates rationale based on the current trajectory. 2. Agent LLM proposes multiple next reasoning steps. 3. Implicit rationales help estimate which step is most probable. 4. The best step is chosen, and the process repeats.
+How does 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 work during inference time? 
+
+It's a stepwise process: 1. 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 generates rationale based on the current trajectory. 2. Agent LLM proposes multiple next reasoning steps. 3. Implicit rationales help estimate which step is most probable. 4. The best step is chosen, and the process repeats.
 
 ```
 With RATIONALYST (using implicit supervision): sbatch sbatch_llama_inference_world_model_single.sh
