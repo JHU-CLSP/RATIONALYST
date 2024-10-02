@@ -1,4 +1,4 @@
-# reasoning_world_model
+# Rationalyst
 
 ## Step 1: Prefilter on The Pile
 `cd sampling/prefilter_code`
