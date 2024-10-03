@@ -17,6 +17,8 @@ cd sampling/prefilter_code
 sh start_multiple_server.sh
 ```
 
+This process will break The Pile into different chunks and run pre-filtering in parallel
+
 ### Step 2: Sample rationales from The Pile and the training set of GSM8K and ECQA
 Implicit rationales are often embedded in unlabelled text, reflecting natural thought processes in daily communication. Our extraction process aims to make these rationales explicit. 
 
@@ -27,6 +29,8 @@ python calculate_perplexity_sampled_rationale_new_method.py
 python filter_rationale.py
 ```
 
+The rationale extraction process requires a vllm server to be running elsewhere. Please update the URL in the script to connect to the correct vllm server. The prompts for extracting rationales are already included in the script.
+
 Rationales extracted from GSM8K can be found [here](https://huggingface.co/datasets/Dongwei/reasoning_world_model)
 
 ### Step 3: 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 model training
@@ -36,6 +40,8 @@ The goal of 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 training is to develop 
 python parse_sampled_rationale.py
 sbatch sbatch_llama_finetune.sh
 ```
+
+This training script is adapted from [stanford-alpaca](https://github.com/tatsu-lab/stanford_alpaca)
 
 Trained RATIONALYST can be found [here](https://huggingface.co/Dongwei/Rationalyst_reasoning_datasets)
 
