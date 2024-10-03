@@ -51,6 +51,9 @@ How does 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 work during inference time
 It's a stepwise process: 1. 𝐑𝐀𝐓𝐈𝐎𝐍𝐀𝐋𝐘𝐒𝐓 generates rationale based on the current trajectory. 2. Agent LLM proposes multiple next reasoning steps. 3. Implicit rationales help estimate which step is most probable. 4. The best step is chosen, and the process repeats.
 
 ```
-With RATIONALYST (using implicit supervision): sbatch sbatch_llama_inference_world_model_single.sh
-Without RATIONALYST: sbatch sbatch_llama_inference_single.sh
+cd model_inference/evaluation_scripts
+The entrance of all task inference is inference.py
+Test on different task: change dataset name
+With RATIONALYST (using implicit supervision): change heuristic to world_model
+Without RATIONALYST: change heuristic to random
 ```
